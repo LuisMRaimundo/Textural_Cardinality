@@ -89,7 +89,7 @@ where `step_to_semitone = {C:0, D:2, E:4, F:5, G:7, A:9, B:11}`.
 - `cents(n) = 100 * ps(n)`
 - `unit(n) = round(cents(n) / bin_cents)`
 
-For `bin_cents = 100`, this is semitone-quantized pitch-space binning.
+`round` is Python 3 **half-to-even** (banker's) rounding: `round(60.5) == 60`, `round(61.5) == 62`. A dead helper `_nearest_int` (half-up) exists in `pitch_grid.py` but is not used. For `bin_cents = 100`, this is semitone-quantized pitch-space binning. When fractional pitch-space values are present on a 100-cent grid, the `microtones_merged` warning reports distinct pitches before and after quantisation and restates the half-to-even rule.
 
 ### 2.3 Pitch-class cardinality and EDO grids
 
@@ -119,14 +119,14 @@ Named presets include 12-, 24-, 48-, 19-, 31-, and 53-EDO (`TUNING_PRESETS` in `
 
 Because music21 pitch-space values are floating-point, auto-detection may land on a high compatible EDO divisor (e.g. 228 rather than 19) even when the score is musically 19-EDO. For 19-, 31-, or 53-EDO analyses, prefer `tuning_preset` or explicit `bin_cents`/`edo` over auto-detect when reproducibility matters.
 
-When `bin_cents` and `edo` are coherent (including preset pairs), `vertical_pitch_class_cardinality` is bounded by `edo` and the cardinality hierarchy in §1.2 holds. Deliberately mismatched `bin_cents`/`edo` pairs are accepted but may break that hierarchy.
+When `bin_cents` and `edo` are coherent (including preset pairs), `vertical_pitch_class_cardinality` is bounded by `edo` and the cardinality hierarchy in §1.2 holds. Deliberately mismatched `bin_cents`/`edo` pairs are accepted (warn-only `inconsistent_tuning_pair`) but may break that hierarchy. Universe size and pitch-unit quantisation follow `bin_cents`; pitch-class cardinality follows `edo`. The GUI links the pair: choosing an EDO or preset sets `bin_cents = 1200/edo`; editing `bin_cents` to a divisor of 1200 sets `edo`.
 
 ### 2.5 Unpitched and percussion events
 
 Textural_Cardinality analyses **pitched** symbolic events only. Event extraction traverses `score.recurse().notes` and retains elements only when a definite pitch with octave can be formed (`_pitch_to_note_tuple`).
 
 - `Note` and `Chord` members with valid pitch/octave are included.
-- `Unpitched` percussion (and any other note-like element without a definite pitched height) is **silently excluded** from `event_count` and from all pitch-cardinality measures.
+- `Unpitched` percussion is listed in `pitch_inventory` with `used_in_metrics=False` and is excluded from `event_count` and from all pitch-cardinality measures.
 - Scores containing only unpitched events do not crash; they yield `event_count = 0` and zero-valued cardinality series.
 
 Percussion-specific cardinality (unpitched instrument multiplicity, timbral layer count, etc.) is **not** implemented in this release.
@@ -141,16 +141,25 @@ The public slice API `vertical_cardinality_for_notes` and summary-row pass-throu
 
 ## 3) Event extraction from scores
 
-Implemented in `src/textural_cardinality/analysis.py` (`_merge_tied_notes`, then `_collect_events`).
+Implemented in `src/textural_cardinality/analysis.py`.
 
-0. **Merge tied notes first.** `analyze_vertical_cardinality` calls music21 `stripTies(inPlace=False, matchByPitch=True)` after parsing and before extraction, so a tie start + continuation(s) becomes one sustained event spanning the union duration; rearticulated (untied) notes stay distinct. On `stripTies` failure the original score is used and a `tie_merge_failed` warning is emitted. (Pass `merge_ties=False` to disable; default is `True`.)
-1. Traverse `score.recurse().notes` (this iterator can include `Unpitched` elements; see §2.5).
-2. Retain only `Note` and `Chord` elements for which `_pitch_to_note_tuple` succeeds (definite `pitch.octave`). Chord members without octave are skipped; unpitched percussion never forms an event.
-3. Convert local element time to score-global time with `getOffsetInHierarchy(score)`.
-4. Read duration in quarter lengths; `end = offset + max(0, duration)`.
-5. Build active half-open intervals `[offset, end)`.
-6. Expand chords to multiple note tuples.
-7. Precompute per-event `units`, `pcs`, and `ref_units` under the active grid (recomputed after tuning selection via `_requantize_events`).
+**Order of operations:** parse → microtone repair → sounding conversion → part-level overrides → note-level overrides → tie merge → register filter → grid quantisation → sweep.
+
+Inventory rows and `note_id` values (`part_index:measure:offset:voice:chord_index`) are built **before** tie merging. A note-level override or exclusion is copied onto every member of the same tie chain (`propagated_to`) so `stripTies(matchByPitch=True)` still merges the chain.
+
+Defaults (`microtone_repair="off"`, `pitch_reference="written"`, no overrides) keep the 1.1.0 extraction numbers.
+
+0. **Parse**, then optional microtone repair (`off` / `warn` / `from_accidentals`). `from_accidentals` recovers only accidentals music21 names as quarter-tones; arrow accidentals (sixth-/twelfth-tones) must be entered as pitch overrides.
+1. Optional `toSoundingPitch()` on a copy when `pitch_reference="sounding"`. Default is **written** pitch (Horn in F and double-bass octave-change stay as notated). Transposing parts are always listed.
+2. Part- then note-level overrides from the inventory / sidecar.
+3. **Merge tied notes.** music21 `stripTies(inPlace=False, matchByPitch=True)`; on failure a `tie_merge_failed` warning is emitted. (Pass `merge_ties=False` to disable; default is `True`.)
+4. Traverse `score.recurse().notes` (this iterator can include `Unpitched` elements; see §2.5).
+5. Retain only `Note` and `Chord` elements for which `_pitch_to_note_tuple` succeeds (definite `pitch.octave`) and that are not excluded (`used_in_metrics=False`). Chord members without octave are skipped; unpitched percussion never forms an event.
+6. Convert local element time to score-global time with `getOffsetInHierarchy(score)`.
+7. Read duration in quarter lengths; `end = offset + max(0, duration)`.
+8. Build active half-open intervals `[offset, end)`.
+9. Expand chords to multiple note tuples.
+10. Precompute per-event `units`, `pcs`, and `ref_units` under the active grid (recomputed after tuning selection via `_requantize_events`). Notes outside A0–C8 stay in unique-pitch count and emit `out_of_register_notes`; they are omitted from `micro_macro_*`.
 
 ## 4) Time axis construction
 
@@ -201,6 +210,14 @@ Complexity: `O(E log E + W + K)` where `E` is events, `W` is sample times, and `
 
 With event-boundary sampling, `W = O(E)` in the minimal mode.
 
+### 4.3.5 Interval summary vs point-sample statistics
+
+`series` is unchanged: it still includes the terminal sample at `t == duration` with cardinality 0 (half-open semantics).
+
+`summary` is computed over the half-open **intervals** between consecutive series times, duration-weighted, using the value at the start of each interval and **excluding** the terminal sample as a duration-bearing point. For each metric the export stores `duration_weighted_mean`, `min_over_sounding_time`, `max`, and `constant_value` when min equals max over sounding time. `silent_duration` is the total interval time with `vertical_note_count == 0` and is reported separately so silence does not pull the sounding-time minimum to 0.
+
+GUI/CLI text starts with a framed ASCII `RESULT` block (cardinality, index to four decimals, `MICRO-`/`MESO-`/`MACRO-TEXTURE`, universe, thresholds), then one settings line and one pitches line, then metadata, then the duration-weighted block (`vertical_note_count` is marked as including duplications and as outside the micro/macro index), then the legacy point-sample min/max/mean line labelled `point-sample statistics (includes terminal boundary)`.
+
 ### 4.3.6 Micro/macro textural cardinality (thesis alignment)
 
 Implemented in `src/textural_cardinality/analysis.py` (`reference_pitch_universe_size`, `micro_macro_normalized`, `_ref_pitch_units`).
@@ -217,11 +234,9 @@ Implemented in `src/textural_cardinality/analysis.py` (`reference_pitch_universe
 
 **Metrics per series row:**
 
-- `micro_macro_pitch_cardinality` — count of distinct quantised pitch units among active notes in A0–C8.
+- `micro_macro_pitch_cardinality` — count of distinct pitches (duplications excluded) within A0–C8 among active notes.
 - `micro_macro_normalized` — `micro_macro_pitch_cardinality / reference_pitch_universe_size` (macro-referenced ratio).
-- `micro_meso_macro_normalized` — three-pole texture index on `[0, 1]`:
-
-  `(cardinality − 1) / (reference_pitch_universe_size − 1)`
+- `micro_meso_macro_normalized` — index `x = (c − 1) / (N − 1)` on `[0, 1]` for those distinct pitches (duplications excluded) within A0–C8.
 
 **Poles (cardinality and normalized):**
 
@@ -231,9 +246,17 @@ Implemented in `src/textural_cardinality/analysis.py` (`reference_pitch_universe
 | **Meso** | `(1 + universe_size) / 2` (44.5 for 88) | 0.5 |
 | **Macro** | full universe (88 or 175) | 1.0 |
 
-Metadata is exposed under `params.micro_macro_texture`: `reference_register`, `reference_ps_low`, `reference_ps_high`, `reference_pitch_universe_size`, `micro_pole_cardinality`, `meso_pole_cardinality`, `macro_pole_cardinality`, `texture_scale` (`micro_meso_macro`), `micro_pole_normalized` (0.0), `meso_pole_normalized` (0.5), `macro_pole_normalized` (1.0).
+Metadata is exposed under `params.micro_macro_texture`: `reference_register`, `reference_ps_low`, `reference_ps_high`, `reference_pitch_universe_size`, index-scale anchors (`micro_pole_cardinality` / `meso_pole_cardinality` / `macro_pole_cardinality` and the 0.0 / 0.5 / 1.0 normalised anchors — **not labels**), `texture_scale` (`micro_meso_macro`), `label_mode`, `label_count_thresholds`, and `label_thresholds` only when `label_mode="index"`.
 
-Auxiliary fields `vertical_note_count` and `vertical_unique_pitch_count` remain available but are not the thesis micro/macro construct.
+The categorical label `texture_scale_label` is an **absolute pitch-count** reading by default (`label_mode="count"`, `label_count_thresholds=(12, 60)`): micro if `c <= 12`; macro if `c >= 60`; meso otherwise. It does not follow the index and is independent of `bin_cents`. Optional `label_mode="index"` uses the frozen protocol pair `label_thresholds=(0.10, 0.35)`.
+
+The former “texture poles” lines are **index scale anchors (min / midpoint / max) — not labels**.
+
+Auxiliary fields `vertical_note_count` and `vertical_unique_pitch_count` remain available but are not the thesis micro/macro construct. `vertical_note_count` includes duplications and is not part of the micro/macro index.
+
+### Reading the result
+
+The headline number is textural cardinality: distinct pitches (duplications excluded) within A0–C8 (`c`). The micro/meso/macro label is **absolute** (pitch counts) and does not change when the grid changes from 88 to 175 positions. The index `x = (c − 1) / (N − 1)` is **grid-relative and secondary**; it is printed once under that heading. When `c` varies, the label is the duration-weighted mean count rounded to the nearest integer, with min/max sounding labels reported. A `microtones_merged` warning marks the label unreliable (`texture_scale_label_reliable: false`).
 
 ## 6) Summary-row fallback calculations
 
@@ -267,6 +290,13 @@ Analysis output includes:
 - `params.temporal_semantics` — `activity_interval` (`half_open_onset_offset`), `active_predicate` (`onset <= t < offset`), `tie_handling` (`merge_tied_notes` or `as_imported`), `tie_merge_applied`, `zero_duration_policy` (`ignored_no_contribution`)
 - `params.tuning` — `bin_cents`, `edo`, `tuning_preset`, `tuning_provenance` (`default_12_edo`, `explicit_bin_cents_edo`, `tuning_preset`, `auto_detected`), `auto_detected_from_n_events`, `non_grid_pitches_count`, `non_grid_pitches_sample`
 - `params.micro_macro_texture`
+- `texture_scale_label` — `micro` / `meso` / `macro` (count mode by default)
+- `label_mode` — `count` or `index`
+- `label_count_thresholds` — `[micro_max_count, macro_min_count]`
+- `label_thresholds` — `[micro_max, macro_min]` only when `label_mode="index"` (frozen default `macro_min=0.35`)
+- `label_basis` — `constant_value` or `duration_weighted_mean`
+- `texture_scale_label_reliable`
+- `reference_universe_size`
 - `warnings` — list of objects with `code`, `severity`, `message`, `details`. Known codes:
   - `non_grid_pitches` (warning) — pitches quantised to nearest grid
   - `tie_merge_failed` (warning) — `stripTies` could not merge ties
@@ -303,7 +333,11 @@ Implemented in `src/textural_cardinality/ui/gradio_app.py` (`build_demo`, `run_c
    - **Auto-detect compatible symbolic grid**
    - **Display mode** — `Raw Counts` or `Normalized (0-1)` (plot scaling only; exported CSV/JSON use raw analysis values)
    - **Secondary axis for PC cardinality** (mainly for raw-count view)
-4. Run analysis and download `CSV` / `JSON`.
+   - **Label mode** (`count` default, or `index`) and **count thresholds** (default 12 / 60). Index thresholds are frozen at the protocol default `macro_min = 0.35`.
+4. **Load & inspect** the pitch inventory; optionally edit sounding pitch / exclusion / per-part transposition.
+5. **Run analysis**. Read the result card first (count → MICRO / MESO / MACRO), then the framed ASCII `RESULT` block, then download `CSV` / `JSON`.
+
+EDO radio, named preset, and `bin_cents` are linked (`bin_cents = 1200/edo` when the pair is a divisor). The universe size is shown next to the controls.
 
 The GUI always calls `analyze_vertical_cardinality` with default `merge_ties=True`. Plot normalisation (`_build_plot`) does not alter stored analysis series values.
 
@@ -317,11 +351,11 @@ python -m textural_cardinality analyze-score path/to/score.mxl \
   --output-json out.json
 ```
 
-Required: `--output-csv`, `--output-json`. Optional: `--time-step` (default `0.25`), `--event-boundaries-only` (sets `time_step=None`), `--bin-cents`, `--edo`, `--tuning-preset`, `--auto-detect-tuning`.
+Required: `--output-csv`, `--output-json`. Optional: `--time-step` (default `0.25`), `--event-boundaries-only` (sets `time_step=None`), `--bin-cents`, `--edo`, `--tuning-preset`, `--auto-detect-tuning`, `--microtone-repair`, `--pitch-reference`, `--pitch-overrides`, `--label-mode` (`count` default), `--label-count-thresholds` (default `12 60`), `--label-thresholds` (index mode only; frozen default `0.10 0.35`). New subcommand: `inventory` (CSV dump, no sweep).
 
 Calls `analyze_vertical_cardinality` with default `merge_ties=True`, then `write_cardinality_csv` and `write_cardinality_json`. Does **not** launch Gradio. Exit code `0` on success, `1` on missing file, invalid `--time-step`, or analysis exception.
 
-Stdout summary fields: `event_count`, `sample_count`, `max vertical_note_count`, `max vertical_unique_pitch_count`, `max vertical_pitch_class_cardinality`, `output_csv`, `output_json`.
+Stdout starts with the framed ASCII `RESULT` block (count, label, secondary index), then settings/pitches lines, metadata, duration-weighted statistics, and the legacy point-sample line. Additional lines: `event_count`, `sample_count`, `max vertical_note_count`, `max vertical_unique_pitch_count`, `max vertical_pitch_class_cardinality`, `output_csv`, `output_json`.
 
 CLI entry routing (`main`): no arguments → Gradio; first argument `analyze-score` → this path; otherwise → direct-input mode (§8.3).
 
@@ -340,13 +374,13 @@ analysis = analyze_vertical_cardinality("path/to/score.mxl")
 exact = analyze_vertical_cardinality("path/to/score.mxl", time_step=None)
 ```
 
-Optional keyword arguments: `time_step` (default `0.25`, or `None` for event-boundaries only), `edo`, `bin_cents`, `auto_detect_tuning`, `tuning_preset`, `merge_ties` (default `True`), `debug_export_internal_path`.
+Optional keyword arguments: `time_step` (default `0.25`, or `None` for event-boundaries only), `edo`, `bin_cents`, `auto_detect_tuning`, `tuning_preset`, `merge_ties` (default `True`), `debug_export_internal_path`, `microtone_repair`, `pitch_reference`, `pitch_overrides`, `label_mode` (default `"count"`), `label_count_thresholds` (default `(12, 60)`), `label_thresholds` (index mode only; frozen default `(0.10, 0.35)`).
 
 ## 10) Verification, CI, and regression fixtures
 
 ### 10.1 Test suite
 
-**244 tests** in `tests/` (**14** modules). Representative groups:
+**294 tests** in `tests/` (**16** modules). Representative groups:
 
 | Module | Tests | Scope |
 |--------|------:|-------|
@@ -356,13 +390,15 @@ Optional keyword arguments: `time_step` (default `0.25`, or `None` for event-bou
 | `test_vertical_cardinality` / `test_microtonal_tuning` | 14 | Pitch-unit/PC cardinality, tuning metadata |
 | `test_micro_macro_texture` | 7 | A0–C8 reference register and normalisation |
 | `test_unpitched_policy` | 2 | Unpitched percussion exclusion |
-| `test_gradio_gui_smoke` | 11 | Import, `build_demo`, delegation — **no Gradio server launch in CI** |
+| `test_gradio_gui_smoke` | 14 | Import, `build_demo`, delegation — **no Gradio server launch in CI** |
 | `test_analytical_musicological_cardinality_plausibility` | 12 | Symbolic plausibility ordering (not perceptual validation) |
-| `test_cli_analyze_score` | 5 | Headless `analyze-score` CLI and legacy direct-input routing |
+| `test_cli_analyze_score` | 6 | Headless `analyze-score` CLI and legacy direct-input routing |
 | `test_regression_micro_corpus` | 31 | Micro-corpus fixture regression (see §10.3) |
 | `test_iav_analysis_pitch_parity` | 117 | `pitch_grid.py` / `analysis.py` / `iav` pitch-primitive parity (see §10.4) |
 | `test_pitch_grid_shared_primitives` | 4 | Shared `pitch_grid.py` re-export identity (see §10.4) |
 | `test_repository_hygiene` | 5 | Repository metadata and CLI smoke checks |
+| `test_pitch_pipeline` | 19 | Repair, inventory, overrides, transposition, interval summary |
+| `test_texture_scale_label` | 27 | Absolute count labels, frozen index threshold 0.35, RESULT block |
 
 ### 10.2 Continuous integration
 
@@ -373,7 +409,7 @@ GitHub Actions workflow **Tests** (`.github/workflows/tests.yml`):
 - Full suite: `python -m pytest tests -q`
 - Coverage gate: `--cov=textural_cardinality --cov=iav --cov-fail-under=85`
 
-Local coverage on a representative run is approximately **90.34%** total (`textural_cardinality` + `iav`); the gate is set at **85%** to avoid brittle cross-environment failures.
+Local coverage on a representative run is approximately **87%** total (`textural_cardinality` + `iav`); the gate is set at **85%** to avoid brittle cross-environment failures.
 
 ### 10.3 Micro-corpus regression fixtures
 

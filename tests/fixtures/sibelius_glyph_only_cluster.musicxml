@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.0">
+  <part-list>
+    <score-part id="P1"><part-name>Cluster</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+        <staves>1</staves>
+      </attributes>
+      <note>
+        <pitch><step>G</step><alter>0</alter><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type>
+        <voice>1</voice>
+      </note>
+      <backup><duration>4</duration></backup>
+      <note>
+        <pitch><step>G</step><alter>0</alter><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type>
+        <accidental>quarter-sharp</accidental>
+        <voice>2</voice>
+      </note>
+      <backup><duration>4</duration></backup>
+      <note>
+        <pitch><step>G</step><alter>1</alter><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type>
+        <accidental>sharp</accidental>
+        <voice>3</voice>
+      </note>
+      <backup><duration>4</duration></backup>
+      <note>
+        <pitch><step>G</step><alter>1</alter><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type>
+        <accidental>three-quarters-sharp</accidental>
+        <voice>4</voice>
+      </note>
+      <backup><duration>4</duration></backup>
+      <note>
+        <pitch><step>A</step><alter>0</alter><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type>
+        <voice>5</voice>
+      </note>
+      <backup><duration>4</duration></backup>
+      <note>
+        <pitch><step>A</step><alter>0</alter><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type>
+        <accidental>quarter-sharp</accidental>
+        <voice>6</voice>
+      </note>
+      <backup><duration>4</duration></backup>
+      <note>
+        <pitch><step>A</step><alter>1</alter><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type>
+        <accidental>sharp</accidental>
+        <voice>7</voice>
+      </note>
+      <backup><duration>4</duration></backup>
+      <note>
+        <pitch><step>A</step><alter>1</alter><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type>
+        <accidental>three-quarters-sharp</accidental>
+        <voice>8</voice>
+      </note>
+    </measure>
+  </part>
+</score-partwise>

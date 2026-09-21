@@ -107,6 +107,22 @@ def test_build_demo_returns_gradio_blocks_without_launch() -> None:
     assert isinstance(demo, gr.Blocks)
 
 
+def test_tuning_widget_handlers_link_edo_and_bin_cents() -> None:
+    bin_cents, label = gradio_app.on_edo_change(24)
+    assert bin_cents == pytest.approx(50.0)
+    assert "175" in label
+    edo, bin_cents, label = gradio_app.on_preset_change("24_edo")
+    assert edo == 24
+    assert bin_cents == pytest.approx(50.0)
+    assert "175" in label
+    edo, label = gradio_app.on_bin_cents_change(50.0)
+    assert edo == 24
+    edo_update, label = gradio_app.on_bin_cents_change(37.0)
+    assert edo_update == gr.update()
+    none_edo, none_bin, none_label = gradio_app.on_preset_change("(none)")
+    assert none_edo == gr.update()
+
+
 def test_run_cardinality_app_delegates_to_analysis_once(monkeypatch: pytest.MonkeyPatch) -> None:
     analysis = _sample_analysis()
     calls: list[tuple[str, dict[str, Any]]] = []
@@ -138,8 +154,11 @@ def test_run_cardinality_app_delegates_to_analysis_once(monkeypatch: pytest.Monk
     assert kwargs["edo"] == 24
     assert kwargs["auto_detect_tuning"] is True
     assert kwargs["tuning_preset"] == "24_edo"
-    assert result[2] == "/tmp/fake.csv"
-    assert result[3] == "/tmp/fake.json"
+    assert kwargs["label_mode"] == "count"
+    assert kwargs["label_count_thresholds"] == (12, 60)
+    assert kwargs["label_thresholds"] is None
+    assert result[3] == "/tmp/fake.csv"
+    assert result[4] == "/tmp/fake.json"
 
 
 def test_run_cardinality_app_maps_none_preset_to_null(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,7 +191,7 @@ def test_run_cardinality_app_success_output_shape(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(gradio_app, "write_cardinality_csv", lambda _a: "/tmp/out.csv")
     monkeypatch.setattr(gradio_app, "write_cardinality_json", lambda _a: "/tmp/out.json")
 
-    fig, summary, csv_path, json_path = gradio_app.run_cardinality_app(
+    fig, card, summary, csv_path, json_path = gradio_app.run_cardinality_app(
         "fixture.mxl",
         time_step=0.25,
         tuning_preset="(none)",
@@ -184,12 +203,16 @@ def test_run_cardinality_app_success_output_shape(monkeypatch: pytest.MonkeyPatc
     )
 
     assert isinstance(fig, go.Figure)
+    assert isinstance(card, str)
     assert isinstance(summary, str)
     assert isinstance(csv_path, str)
     assert isinstance(json_path, str)
+    assert "### Textural cardinality" in card
+    assert "MICRO" in card or "MESO" in card or "MACRO" in card
     assert "fixture.mxl" in summary
     assert "EDO: 24" in summary
     assert "Note Count min/max/mean: 2/3/2.50" in summary
+    assert summary.lstrip().startswith("=") or summary.startswith("=")
 
 
 def test_run_cardinality_app_rejects_missing_file() -> None:
@@ -203,6 +226,40 @@ def test_run_cardinality_app_rejects_missing_file() -> None:
             auto_detect_tuning=False,
             view_mode="Raw Counts",
             pc_secondary_axis=False,
+        )
+
+
+def test_run_cardinality_app_rejects_invalid_count_thresholds() -> None:
+    with pytest.raises(gr.Error, match="1 <= micro_max_count < macro_min_count"):
+        gradio_app.run_cardinality_app(
+            "fixture.mxl",
+            time_step=0.25,
+            tuning_preset="(none)",
+            bin_cents=100.0,
+            edo=12,
+            auto_detect_tuning=False,
+            view_mode="Raw Counts",
+            pc_secondary_axis=False,
+            label_mode="count",
+            micro_max_count=60,
+            macro_min_count=12,
+        )
+
+
+def test_run_cardinality_app_rejects_invalid_index_thresholds() -> None:
+    with pytest.raises(gr.Error, match="0 < micro_max < macro_min < 1"):
+        gradio_app.run_cardinality_app(
+            "fixture.mxl",
+            time_step=0.25,
+            tuning_preset="(none)",
+            bin_cents=100.0,
+            edo=12,
+            auto_detect_tuning=False,
+            view_mode="Raw Counts",
+            pc_secondary_axis=False,
+            label_mode="index",
+            micro_max=0.35,
+            macro_min=0.10,
         )
 
 
@@ -231,7 +288,7 @@ def test_summary_preserves_analysis_numerical_fields(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(gradio_app, "write_cardinality_csv", lambda _a: "/tmp/out.csv")
     monkeypatch.setattr(gradio_app, "write_cardinality_json", lambda _a: "/tmp/out.json")
 
-    _fig, summary, _csv, _json = gradio_app.run_cardinality_app(
+    _fig, _card, summary, _csv, _json = gradio_app.run_cardinality_app(
         "fixture.mxl",
         time_step=0.25,
         tuning_preset="(none)",
