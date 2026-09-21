@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "textural-cardinality"
-version = "1.1.0"
+version = "1.2.2"
 description = "Textural_Cardinality — symbolic vertical note, pitch, and pitch-class counts with exact event-boundary sampling."
 readme = "README.md"
 requires-python = ">=3.10"

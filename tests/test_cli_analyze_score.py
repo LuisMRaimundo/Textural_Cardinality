@@ -144,6 +144,22 @@ def test_analyze_score_does_not_launch_gui(monkeypatch: pytest.MonkeyPatch) -> N
         Path(score_path).unlink(missing_ok=True)
 
 
+def test_inventory_subcommand_writes_csv(tmp_path: Path) -> None:
+    from textural_cardinality.__main__ import run_inventory
+
+    score_path = _write_score_with_chord(["C4", "E4"])
+    csv_path = tmp_path / "inv.csv"
+    try:
+        exit_code = run_inventory([score_path, "--output-csv", str(csv_path)])
+        assert exit_code == 0
+        assert csv_path.is_file()
+        text = csv_path.read_text(encoding="utf-8")
+        assert "note_id" in text
+        assert "sounding_ps" in text
+    finally:
+        Path(score_path).unlink(missing_ok=True)
+
+
 def test_direct_input_mode_still_works_without_subcommand(capsys: pytest.CaptureFixture[str]) -> None:
     run_direct_input(["--notes", "4", "--unique-pitches", "3", "--pc-cardinality", "2", "--edo", "24"])
     out = capsys.readouterr().out
